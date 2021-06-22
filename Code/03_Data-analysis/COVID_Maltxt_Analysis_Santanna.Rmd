@@ -1,0 +1,92 @@
+---
+title: "05_Callaway-Santanna_actual-data"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(magrittr)
+library(geofacet)
+
+library(did)
+library(bacondecomp)
+```
+
+```{r}
+dat <- read_csv("/Users/corinneriddell/Box Sync/Google-search-data/Data-for-Analysis/Analytic Data Set/Child-Maltrxt-Data-For-Analysis-Final.csv") #this is the data returned by Google API
+#It isn't on the Github repo since it is restricted
+
+names(dat)
+
+SIP_dates <- read_xlsx("./Data/SIP-weeks-by-state.xlsx") #this data is in the Github repo
+
+#apply same exclusions as for the main analysis
+dat_tidy <- dat %>% filter(StateAbbr != "US", Year > 2017)
+dat_tidy2 <- dat_tidy %>% filter(WeekAfterSIP_v1 <= 10)
+dat_tidy3 <- dat_tidy2 %>% filter(!(Year == 2020 & week_of_year > 24 & EverSIP == 0))
+dat_tidy3 <- dat_tidy3 %>% mutate(statenum = as.numeric(as.factor(StateAbbr)))
+dat_tidy3 %<>% mutate(lnorig_and_value = log(Orig_and_value))
+
+dat_tidy3 %<>% mutate(five_wks_after = case_when(WeekAfterSIP_v1 == 0 ~ 0,
+                                                 WeekAfterSIP_v1 >= 1 & WeekAfterSIP_v1 <= 5 ~ 1, 
+                                                 WeekAfterSIP_v1 >= 6 & WeekAfterSIP_v1 <= 10 ~ 2,
+                                                 WeekAfterSIP_v1 > 10 ~ 3),
+                      post = case_when(WeekAfterSIP_v1 == 0 ~ 0,
+                                       WeekAfterSIP_v1 >= 1 & WeekAfterSIP_v1 <= 5 ~ 1, 
+                                       WeekAfterSIP_v1 >= 6 & WeekAfterSIP_v1 <= 10 ~ 1,
+                                       WeekAfterSIP_v1 > 10 ~ 1))
+
+table(dat_tidy3$WeekAfterSIP_v1, dat_tidy3$five_wks_after)
+table(dat_tidy3$WeekAfterSIP_v1, dat_tidy3$post)
+
+dat_tidy3 %<>% 
+  group_by(StateAbbr) %>% 
+  arrange(Year, week_of_year) %>% 
+  mutate(week_counter = row_number())
+
+table(dat_tidy3$week_counter)
+
+dat_tidy4 <- merge(dat_tidy3, SIP_dates, by = "StateAbbr")
+
+dat_tidy4 %<>% 
+  mutate(wk_of_SIP2 = case_when(Wk_SIP == 12 ~ 52*2 + 12,
+                                Wk_SIP == 13 ~ 52*2 + 13, 
+                                Wk_SIP == 14 ~ 52*2 + 14, 
+                                Wk_SIP == 15 ~ 52*2 + 15,
+                                Wk_SIP == 0 ~ 0),
+         time_since_change = case_when(Ever_txt == 1 & week_counter < wk_of_SIP2 ~ 0,
+                                       Ever_txt == 1 & week_counter >= wk_of_SIP2 ~ week_counter - wk_of_SIP2 + 1,
+                                       Ever_txt == 0  ~ 0))
+
+```
+
+```{r}
+ggplot(dat_tidy3 %>% filter(week_counter >100), aes(y = Orig_Avg, x = week_counter)) + geom_line() + facet_geo(~StateAbbr)
+
+take1 <- att_gt(yname = "Orig_Avg",
+              gname = "wk_of_SIP2",
+              idname = "statenum",
+              tname = "week_counter",
+              data = dat_tidy4,
+              control_group= "not_yet_treated",
+              bstrap = FALSE,
+              )
+
+
+dynamic_ests <- aggte(take1, type = "dynamic")
+dynamic_ests$att.egt #the estimated effects 
+
+#easier to see in a plot
+ggdid(dynamic_ests) + 
+  geom_hline(yintercept = 0)
+
+#zoom in on the -20 weeks pre and 10 weeks post
+#consistent with no effect of SIP on maltreatment searches
+ggdid(dynamic_ests) + 
+  scale_x_continuous(limits = c(-20,13)) +
+  geom_hline(yintercept = 0)
+  
+```
+
+
