@@ -1,0 +1,172 @@
+---
+title: "Child Maltreatment: Creating Analytic Dataset"
+---
+
+# Set up and import data
+
+```{r Install Libraries, include=FALSE}
+
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+
+```
+
+
+This code reads in all individual State-sample CSVs into a single dataframe. We assume all CSVs associated with the Google Health API main outcome data are saved in a project sub folder called "OutcomeData" whose directory hierarchy is as follows: Current Working Directory -> "OutcomeData" -> Folders for each sample -> Folder called "states" -> individual folders for each state -> State-sample CSV file.
+
+
+```{r import Google Search data}
+
+# We list out all CSVs within our "OutcomeData" folder and subsequently read them into a dataframe. We further split the "filename" column of the resulting dataframe to identify individual State-samples. Finally, we perform some additional actions to clean and format the data 
+
+dat <- paste0("OutcomeData/", list.files("./OutcomeData", pattern="*.csv", recursive = TRUE)) %>% 
+  setNames(nm = .) %>%
+  map_df(~read_csv(.x, col_types = cols(), col_names = TRUE), .id = "file_name") %>% 
+  separate("file_name", c("OutcomeData", "SampleNo", "StatesFolder", "State", "Filename"), "/") %>% 
+  separate("State", c("US", "StateAbbr"),"-") %>%
+  select(StateAbbr, SampleNo, value, timestamp)  
+
+#Replace zero values with NA
+dat$value[dat$value == 0] <- NA
+
+```
+
+# Average across all samples
+
+```{r}
+
+# Add a State-week specific average. Then add useful date fields for analysis
+
+dat.averaged <- dat %>% 
+  group_by(StateAbbr, timestamp) %>% 
+  summarise(orig_avg = mean(value, na.rm=TRUE)) %>% 
+  mutate(date = as.Date(timestamp), week_of_year = epiweek(timestamp), year = format(timestamp, "%Y")) 
+
+dat.averaged$orig_avg[is.nan(dat.averaged$orig_avg)] <- NA
+
+# We also note that for our specific time period, the first week of each year begins in the prior year (aka 2017.12.31 is week 1 of 2018). Thus the year column currently indicates the incorrect year and needs to be updated for each of these weeks to correspond to the 1st week of the following year.
+
+dat.averaged$year[dat.averaged$date == "2017-12-31"] <-"2018"
+dat.averaged$year[dat.averaged$date == "2018-12-30"] <-"2019"
+dat.averaged$year[dat.averaged$date == "2019-12-29"] <-"2020"
+
+```
+
+# Add normalization term and calculate normalized value
+
+We assume all CSVs associated with the Google Health API output for the normalizing term are saved in a project sub folder called "NormalizingData" whose directory hierarchy is as follows: Current Working Directory -> "NormalizingData" -> Folder called "states" -> individual folders for each state -> State-normalizing-term CSV file.
+
+
+```{r}
+
+# First read in normalizing term data. This process is the same as when we read in all of the outcome data.
+
+norm <- paste0("NormalizingData/", list.files("./NormalizingData", pattern="*.csv", recursive = TRUE)) %>% 
+  setNames(nm = .) %>%
+  map_df(~read_csv(.x, col_types = cols(), col_names = TRUE), .id = "file_name") %>% 
+  separate("file_name", c("NormalizingData", "StatesFolder", "State", "Filename"), "/") %>% 
+  separate("State", c("US", "StateAbbr"),"-") %>%
+  select(StateAbbr, value, timestamp) %>% 
+  rename("orig_and_value" = "value")
+
+
+# Merge normalizing term into dataframe with sample averages and then calculate the normalized value
+
+dat.avg.norm <- merge(dat.averaged, norm, by = c("StateAbbr", "timestamp")) %>% 
+  mutate(normalized_avg_and = orig_avg/orig_and_value * 1000000) %>%   # multiply by a scaler to ensure result is on same scale as original data
+  select(- c(timestamp, orig_and_value))
+
+dat.avg.norm$normalized_avg_and[is.nan(dat.avg.norm$normalized_avg_and)] <- NA
+```
+
+
+# Add exposure/SIP data as well as population weights
+
+We assume that exposure/SIP data are saved as a csv file in a project subfolder called "ExposureData" within the working directory. The SIP data we provided are structured with the following columns: "StateAbbr", "Wk_SIP" (the week SIP was introduced) and "EverSIP" (an indicator for whether SIP was ever present in that State). 
+
+We also assume that the population weight data are in this "ExposureData" folder. This file, whose data is from the 2010 Decennial Census, contains a list of States, State abbreviations, and population counts for each states for the years 2017, 2018 and 2019. It also contains the average population for each State for the years 2017/2018, 2018/2019 and 2017/2018/2019. For our purposes, we will only be using the average population between 2018 and 2019 or "pop_avg_2018_2019"
+
+```{r}
+
+# Add in exposure data
+exp <- read.csv("./ExposureData/SIP-weeks-by-state.csv")
+dat.avg.norm.exp <- merge(dat.avg.norm, exp, by = "StateAbbr")
+
+# Add in population weights
+popwt <- read.csv("./ExposureData/Census_Population_Data.csv") %>% 
+  select(StateAbbr, pop_avg_2018_2019)
+dat.avg.norm.exp <- merge(dat.avg.norm.exp, popwt, by = "StateAbbr")
+
+```
+
+
+# Add other relavant variables for analysis
+
+These additional variables include:
+
+ * An indicator, "SIP_v1", to indicate time periods for which the treatment is *on* (aka SIP is present)
+ 
+ * A counter for all the weeks Post-SIP, "WeekAfterSIP_v1". This counter starts at 1 the week SIP is introduced.
+ 
+ * Leads/Lags which we call "lead_lag4". These indicators are structured to count 10 lead weeks pre-SIP and 10 lag weeks post-SIP with the first lead starting at 1 and the last lag ending at 21. The Week SIP is introduced is denoted by lead_lag4 == 11. 
+
+```{r}
+
+dat.final <- dat.avg.norm.exp
+
+#Set all variables to 0 to start.
+dat.final$SIP_v1 <- 0
+dat.final$WeekAfterSIP_v1 <- 0
+dat.final$lead_lag4 <- 0
+
+#Initialize variables for loop. We will loop over all dates and all States:
+StateWeeks <- unique(dat.final$date)
+State_list <- unique(dat.final$StateAbbr)
+
+for(i in 1:length(StateWeeks)){
+  for(j in 1:length(State_list)){
+  
+    temp <- dat.final %>% filter(date == StateWeeks[i] & StateAbbr == State_list[j])
+  
+    # For States that implement SIP and only in the year 2020, if the current week of the year is BEFORE SIP, 
+    # the only variable we need to update is the lead/lag. We need to add a lead which counts down from week of SIP = 11. 
+    
+    if (temp$EverSIP == 1 & temp$year == "2020" & temp$week_of_year< temp$Wk_SIP) {
+      
+      dat.final$lead_lag4[dat.final$date == StateWeeks[i] & dat.final$StateAbbr == State_list[j]] = temp$week_of_year - temp$Wk_SIP + 11
+    }
+    
+    # Otherwise, if the State implemented SIP and we are in the week of SIP or one after it, 
+    # then we must set the SIP indicator to 1, count the weeks post-SIP starting at week of SIP = 1, and 
+    # update the lead/lag. We need to add a lag which counts up from week of SIP = 11.
+    
+    else if(temp$EverSIP == 1 & temp$year == "2020" & temp$week_of_year >= temp$Wk_SIP) {
+      
+      dat.final$SIP_v1[dat.final$date == StateWeeks[i] & dat.final$StateAbbr == State_list[j]] = 1
+      dat.final$WeekAfterSIP_v1[dat.final$date == StateWeeks[i] & dat.final$StateAbbr == State_list[j]] = temp$week_of_year - temp$Wk_SIP + 1
+      dat.final$lead_lag4[dat.final$date == StateWeeks[i] & dat.final$StateAbbr == State_list[j]] = temp$week_of_year - temp$Wk_SIP + 11
+    }
+    
+    # In all other conditions (either the State didn't implement SIP or we are in a year prior to 2020),
+    # we don't need to make any updates to these variables.
+    
+    else {
+    }
+  }
+}
+
+# Lastly, since we only want the lead/lags to count 10 weeks before and 10 weeks after, we will reset them to 0 outside this range.
+dat.final$lead_lag4[dat.final$lead_lag4 > 21 | dat.final$lead_lag4 < 1 ] <- 0
+
+```
+
+
+# Export final analyic data set
+
+```{r}
+
+write.csv(dat.final, "Analytic_Data_with_leads.csv")
+
+```
+
