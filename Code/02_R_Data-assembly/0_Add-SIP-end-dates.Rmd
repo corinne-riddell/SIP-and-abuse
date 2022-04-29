@@ -1,0 +1,44 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-04-29'
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(magrittr)
+```
+
+```{r}
+dates <- read_xlsx("./Data/BU-data-duplicate.xlsx", range = "A1:H52", 
+                   col_types = c("text", "text", "numeric", "date", "numeric", "date", "date", "text"))
+
+names(dates)
+
+dates %<>% rename(stabb = `State Abbreviation`, 
+                  fips = `State FIPS Code`, 
+                  start_sip = `Stay at home/shelter in place`, 
+                  exempt_relig = `Religious Gatherings Exempt Without Clear Social Distance Mandate*`,
+                  start_sip_mild = `Stay-at-home order issued but did not specifically restrict movement of the general public`,
+                  end_sip = `End stay at home/shelter in place`)
+
+#censor end date at the last date we have data if end date is after the study end
+
+dates %<>% mutate(end_sip_censored = case_when(end_sip > as_date("2020-06-14") ~ as_date("2020-06-14"), #as_date("2020-06-14"),
+                                               end_sip <= as_date("2020-06-14") ~ as_date(end_sip)) #end_sip
+                  )
+
+
+dates %<>% mutate(week_start_sip = week(start_sip),
+                  week_start_mild_sip = week(start_sip_mild),
+                  week_end_sip_c = week(end_sip_censored),
+                  week_start_sip2 = isoweek(start_sip),
+                  week_start_mild_sip2 = isoweek(start_sip_mild),
+                  week_end_sip_c_2 = isoweek(end_sip_censored),
+)
+
+```
+
+
