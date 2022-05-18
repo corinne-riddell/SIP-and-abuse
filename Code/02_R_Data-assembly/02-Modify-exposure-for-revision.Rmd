@@ -1,0 +1,25 @@
+---
+title: "Untitled"
+output: html_document
+date: '2022-05-18'
+---
+
+```{r}
+library(magrittr)
+library(tidyverse)
+```
+
+```{r}
+new_data <- read_csv("/Users/corinneriddell/Library/CloudStorage/Box-Box/Google-search-data/Data-for-Analysis/Analytic Data Set/Analytic_Data_with_leads_and_new_exposure_for_RR.csv")
+```
+Update the lead lag variables
+
+```{r}
+new_data %<>% mutate(lead_lag4_rr = case_when(lead_lag4 < 11 ~ lead_lag4,
+                                              lead_lag4 >= 11 ~ lead_lag4 * SIP_rr))
+
+write_csv(new_data, "/Users/corinneriddell/Library/CloudStorage/Box-Box/Google-search-data/Data-for-Analysis/Analytic Data Set/Analytic_Data_with_leads_and_new_exposure_for_RR2.csv")
+
+#then I went to xlsx and manually updated the results for NY and OK
+```
+
