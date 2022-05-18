@@ -4,7 +4,7 @@ title: "Child Maltreatment: Creating Analytic Dataset"
 
 # Set up and import data
 
-```{r Install Libraries, include=FALSE}
+```{r load-libraries, include=FALSE}
 
 library(tidyverse)
 library(dplyr)
