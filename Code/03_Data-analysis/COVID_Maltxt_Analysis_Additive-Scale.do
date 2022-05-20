@@ -9,11 +9,12 @@
 /*****************************************************************************************/
 
 * read in data
-import delimited "/Users/corinneriddell/Box Sync/Google-search-data/Data-for-Analysis/Analytic Data Set/Analytic_Data_with_leads.csv", encoding(ISO-8859-1) clear
+import delimited "/Users/corinneriddell/Library/CloudStorage/Box-Box/Google-search-data/Data-for-Analysis/Analytic Data Set/Analytic_Data_with_leads.csv", encoding(ISO-8859-1) clear
 
 tab year 
 tab weekaftersip_v1
 
+tab stateabbr
 * remove US level data from analysis
 drop if stateabbr=="US"
 

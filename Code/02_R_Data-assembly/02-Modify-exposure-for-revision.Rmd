@@ -23,3 +23,46 @@ write_csv(new_data, "/Users/corinneriddell/Library/CloudStorage/Box-Box/Google-s
 #then I went to xlsx and manually updated the results for NY and OK
 ```
 
+
+```{r}
+rm(new_data)
+
+new_data2 <- read_csv("/Users/corinneriddell/Library/CloudStorage/Box-Box/Google-search-data/Data-for-Analysis/Analytic Data Set/Analytic_Data_with_leads_and_new_exposure_for_RR2.csv")
+
+new_data2 %<>% mutate(weak_ban_ind =   case_when(Weak_ban == 1 & SIP_rr == 1 ~ 1,
+                                                 Weak_ban == 1 & SIP_rr == 0 ~ 0, 
+                                                 Weak_ban == 0 & SIP_rr == 1 ~ 0,
+                                                 Weak_ban == 0 & SIP_rr == 0 ~ 0),
+                      strong_ban_ind = case_when(Weak_ban == 1 & SIP_rr == 1 ~ 0,
+                                                 Weak_ban == 1 & SIP_rr == 0 ~ 0, 
+                                                 Weak_ban == 0 & SIP_rr == 1 ~ 1,
+                                                 Weak_ban == 0 & SIP_rr == 0 ~ 0)
+)
+
+#check that no rows have weak and strong ban at the same time
+table(new_data2$weak_ban_ind, new_data2$strong_ban_ind)
+
+table(new_data2$StateAbbr, new_data2$weak_ban_ind)
+
+#which states have weak bans
+unique(new_data2$StateAbbr[new_data2$weak_ban_ind == 1])
+length(unique(new_data2$StateAbbr[new_data2$weak_ban_ind == 1]))
+
+#which states have strong bans (the rest of the ever SIP states)
+unique(new_data2$StateAbbr[new_data2$strong_ban_ind == 1])
+length(unique(new_data2$StateAbbr[new_data2$strong_ban_ind == 1]))
+
+length(unique(new_data2$StateAbbr[new_data2$Ever_SIP == 0]))
+
+length(unique(new_data2$StateAbbr)) #check the total is equal to 42
+
+new_data2 %<>% select(-1)
+
+table(new_data2$weak_ban_ind[new_data2$StateAbbr =="GA"])
+table(new_data2$weak_ban_ind[new_data2$StateAbbr =="KY"])
+```
+
+```{r}
+write_csv(new_data2, "/Users/corinneriddell/Library/CloudStorage/Box-Box/Google-search-data/Data-for-Analysis/Analytic Data Set/Analytic_Data_with_leads_and_new_exposure_for_RR3.csv")
+```
+
